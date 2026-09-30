@@ -1,0 +1,149 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  --bg: #f4f4f1;
+  --surface: #fcfcfb;
+  --surface-2: #f0efec;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #7a7873;
+  --line: #e1e0d9;
+  --line-strong: #c3c2b7;
+  --accent: #1c5cab;
+  --accent-hover: #184f95;
+  --accent-soft: #e3eefc;
+  --on-accent: #ffffff;
+  --sidebar: #16222f;
+  --sidebar-ink: #c9d3de;
+  --sidebar-active: #243447;
+  /* status (fixed) */
+  --good: #0ca30c;
+  --good-ink: #006300;
+  --warn: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --critical-ink: #b42323;
+  /* chart series (validated reference palette) */
+  --series-1: #2a78d6;
+  --series-1-soft: #86b6ef;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0d0d0d;
+    --surface: #1a1a19;
+    --surface-2: #232321;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #979590;
+    --line: #2c2c2a;
+    --line-strong: #383835;
+    --accent: #3987e5;
+    --accent-hover: #5598e7;
+    --accent-soft: #15253a;
+    --on-accent: #ffffff;
+    --sidebar: #111417;
+    --sidebar-ink: #b5bec8;
+    --sidebar-active: #1f2a36;
+    --good-ink: #0ca30c;
+    --critical-ink: #e66767;
+    --series-1: #3987e5;
+    --series-1-soft: #184f95;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --grid: #2c2c2a;
+    --axis: #383835;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-ink: var(--sidebar-ink);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-good: var(--good);
+  --color-good-ink: var(--good-ink);
+  --color-warn: var(--warn);
+  --color-serious: var(--serious);
+  --color-critical: var(--critical);
+  --color-critical-ink: var(--critical-ink);
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Form controls */
+@utility input {
+  @apply w-full rounded-md border border-line-strong bg-surface px-2.5 py-1.5 text-sm text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent/25 disabled:opacity-60;
+}
+@utility label {
+  @apply mb-1 block text-xs font-medium text-ink-2;
+}
+@utility btn {
+  @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+}
+@utility btn-primary {
+  @apply bg-accent text-on-accent hover:bg-accent-hover;
+}
+@utility btn-secondary {
+  @apply border border-line-strong bg-surface text-ink hover:bg-surface-2;
+}
+@utility btn-danger {
+  @apply bg-critical text-white hover:opacity-90;
+}
+@utility btn-sm {
+  @apply px-2 py-1 text-xs;
+}
+
+/* Data tables */
+.table {
+  @apply w-full border-collapse text-sm;
+}
+.table th {
+  @apply sticky top-0 border-b border-line bg-surface-2 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-ink-2 whitespace-nowrap;
+}
+.table td {
+  @apply border-b border-line px-3 py-2 align-middle;
+}
+.table tbody tr:hover {
+  @apply bg-surface-2/60;
+}
+@utility num {
+  @apply text-right tabular-nums whitespace-nowrap;
+}
+
+@media print {
+  aside,
+  header,
+  .no-print {
+    display: none !important;
+  }
+  main {
+    padding: 0 !important;
+  }
+}

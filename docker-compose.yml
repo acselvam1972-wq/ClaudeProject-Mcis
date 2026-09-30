@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: steeltrack
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-steeltrack}
+      POSTGRES_DB: steeltrack
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U steeltrack"]
+      interval: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://steeltrack:${POSTGRES_PASSWORD:-steeltrack}@db:5432/steeltrack?schema=public
+      AUTH_SECRET: ${AUTH_SECRET:?Set AUTH_SECRET (openssl rand -base64 48)}
+      # Set to "true" only when serving over plain HTTP (no TLS proxy), e.g. local evaluation.
+      INSECURE_COOKIES: ${INSECURE_COOKIES:-false}
+    ports:
+      - "3000:3000"
+
+  # One-off: load the demo project. `docker compose run --rm seed`
+  seed:
+    build:
+      context: .
+      target: builder
+    profiles: ["tools"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://steeltrack:${POSTGRES_PASSWORD:-steeltrack}@db:5432/steeltrack?schema=public
+    command: sh -c "npx prisma migrate deploy && npx tsx prisma/seed.ts"
+
+volumes:
+  pgdata:

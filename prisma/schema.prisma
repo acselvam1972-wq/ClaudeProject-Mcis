@@ -1,0 +1,346 @@
+// SteelTrack — steel structure construction progress tracker
+// Progress model: every member passes through weighted stages; earned tonnage per
+// stage = unit weight x qty completed x stage weight. Overall % = earned / total tonnage.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  PROJECT_MANAGER
+  PLANNER
+  SITE_ENGINEER
+  QC_INSPECTOR
+  VIEWER
+}
+
+enum EntryStatus {
+  APPROVED
+  PENDING_QC
+  REJECTED
+}
+
+enum InspectionResult {
+  PENDING
+  PASSED
+  FAILED
+}
+
+enum NcrStatus {
+  OPEN
+  UNDER_REVIEW
+  CLOSED
+}
+
+enum Severity {
+  MINOR
+  MAJOR
+  CRITICAL
+}
+
+enum PunchCategory {
+  A
+  B
+  C
+}
+
+enum PunchStatus {
+  OPEN
+  CLOSED
+}
+
+enum ShipmentStatus {
+  IN_TRANSIT
+  RECEIVED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         Role     @default(VIEWER)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  progressEntries ProgressEntry[] @relation("EnteredBy")
+  reviewedEntries ProgressEntry[] @relation("ReviewedBy")
+  inspections     Inspection[]
+  ncrsRaised      Ncr[]           @relation("NcrRaisedBy")
+  punchesRaised   PunchItem[]
+  auditLogs       AuditLog[]
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  client      String?
+  location    String?
+  startDate   DateTime
+  endDate     DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  areas       Area[]
+  contractors Contractor[]
+  stages      Stage[]
+  members     Member[]
+  planPoints  PlanPoint[]
+  ncrs        Ncr[]
+  punchItems  PunchItem[]
+  shipments   Shipment[]
+  inspections Inspection[]
+}
+
+/// Plant area / unit / structure (e.g. "PR-01 Main Pipe Rack", "U-100 Compressor Shelter")
+model Area {
+  id        String  @id @default(cuid())
+  projectId String
+  code      String
+  name      String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  members   Member[]
+  planPoints PlanPoint[]
+  ncrs      Ncr[]
+  punchItems PunchItem[]
+
+  @@unique([projectId, code])
+}
+
+model Contractor {
+  id        String   @id @default(cuid())
+  projectId String
+  name      String
+  scope     String?
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  members   Member[]
+  punchItems PunchItem[]
+
+  @@unique([projectId, name])
+}
+
+/// Weighted construction stage. Weights across a project must sum to 100.
+model Stage {
+  id        String  @id @default(cuid())
+  projectId String
+  code      String
+  name      String
+  sequence  Int
+  weight    Float
+  /// Entries against a QC-hold stage need QC approval before they earn progress.
+  qcHold    Boolean @default(false)
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  memberStages MemberStage[]
+  entries   ProgressEntry[]
+
+  @@unique([projectId, code])
+  @@unique([projectId, sequence])
+}
+
+model Member {
+  id           String   @id @default(cuid())
+  projectId    String
+  areaId       String
+  contractorId String?
+  markNo       String
+  drawingNo    String?
+  revision     String?
+  memberType   String   // COLUMN, BEAM, BRACING, GIRT, PURLIN, PLATFORM, STAIR, HANDRAIL, GRATING, MISC
+  profile      String?  // e.g. UB 457x191x67, ISMB 300
+  grade        String?  // e.g. S355JR, E250
+  lengthMm     Float?
+  quantity     Int      @default(1)
+  unitWeightKg Float
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  project      Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  area         Area        @relation(fields: [areaId], references: [id])
+  contractor   Contractor? @relation(fields: [contractorId], references: [id])
+  stages       MemberStage[]
+  entries      ProgressEntry[]
+  inspections  Inspection[]
+  ncrs         Ncr[]
+  punchItems   PunchItem[]
+  shipmentItems ShipmentItem[]
+
+  @@unique([projectId, markNo])
+  @@index([projectId, areaId])
+}
+
+/// Approved quantity completed per member per stage (denormalised from ProgressEntry).
+model MemberStage {
+  memberId  String
+  stageId   String
+  qtyDone   Int      @default(0)
+  updatedAt DateTime @updatedAt
+  member    Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  stage     Stage    @relation(fields: [stageId], references: [id], onDelete: Cascade)
+
+  @@id([memberId, stageId])
+}
+
+/// Daily progress log — the source of truth for the actual S-curve.
+model ProgressEntry {
+  id           String      @id @default(cuid())
+  memberId     String
+  stageId      String
+  quantity     Int
+  workDate     DateTime    @db.Date
+  status       EntryStatus @default(APPROVED)
+  remarks      String?
+  enteredById  String
+  reviewedById String?
+  reviewedAt   DateTime?
+  reviewNote   String?
+  createdAt    DateTime    @default(now())
+
+  member     Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  stage      Stage  @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  enteredBy  User   @relation("EnteredBy", fields: [enteredById], references: [id])
+  reviewedBy User?  @relation("ReviewedBy", fields: [reviewedById], references: [id])
+
+  @@index([stageId, status])
+  @@index([workDate])
+}
+
+/// Planned cumulative % (baseline S-curve). areaId null = whole project.
+model PlanPoint {
+  id             String   @id @default(cuid())
+  projectId      String
+  areaId         String?
+  date           DateTime @db.Date
+  plannedPercent Float
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  area           Area?    @relation(fields: [areaId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, date])
+}
+
+model Inspection {
+  id          String           @id @default(cuid())
+  projectId   String
+  memberId    String?
+  type        String           // ITP_HOLD, BOLT_TORQUE, ALIGNMENT, VERTICALITY, WELD_VISUAL, PAINT_DFT, FINAL
+  reference   String?          // ITP / checklist number
+  result      InspectionResult @default(PENDING)
+  inspectedAt DateTime?
+  inspectorId String?
+  remarks     String?
+  // Bolt torque specifics
+  boltSize        String?
+  specifiedTorqueNm Float?
+  actualTorqueNm  Float?
+  boltCount       Int?
+  // Alignment / verticality specifics
+  toleranceMm   Float?
+  measuredMm    Float?
+  createdAt   DateTime @default(now())
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  member    Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  inspector User?   @relation(fields: [inspectorId], references: [id])
+
+  @@index([projectId, type])
+}
+
+model Ncr {
+  id          String    @id @default(cuid())
+  projectId   String
+  number      String
+  title       String
+  description String
+  severity    Severity  @default(MINOR)
+  status      NcrStatus @default(OPEN)
+  areaId      String?
+  memberId    String?
+  disposition String?   // Use-as-is / Repair / Rework / Reject
+  raisedById  String
+  raisedAt    DateTime  @default(now())
+  dueDate     DateTime?
+  closedAt    DateTime?
+
+  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  area     Area?   @relation(fields: [areaId], references: [id])
+  member   Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  raisedBy User    @relation("NcrRaisedBy", fields: [raisedById], references: [id])
+
+  @@unique([projectId, number])
+}
+
+model PunchItem {
+  id           String        @id @default(cuid())
+  projectId    String
+  number       String
+  description  String
+  category     PunchCategory @default(B)
+  status       PunchStatus   @default(OPEN)
+  areaId       String?
+  memberId     String?
+  contractorId String?
+  raisedById   String
+  raisedAt     DateTime      @default(now())
+  dueDate      DateTime?
+  closedAt     DateTime?
+
+  project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  area       Area?       @relation(fields: [areaId], references: [id])
+  member     Member?     @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  contractor Contractor? @relation(fields: [contractorId], references: [id])
+  raisedBy   User        @relation(fields: [raisedById], references: [id])
+
+  @@unique([projectId, number])
+}
+
+/// Delivery from fabrication shop to site. Dispatch/receipt feed the DISPATCH/RECEIPT stages.
+model Shipment {
+  id            String         @id @default(cuid())
+  projectId     String
+  number        String         // Delivery note / challan number
+  vehicleNo     String?
+  transporter   String?
+  dispatchDate  DateTime       @db.Date
+  receivedDate  DateTime?      @db.Date
+  laydownArea   String?
+  status        ShipmentStatus @default(IN_TRANSIT)
+  remarks       String?
+  createdAt     DateTime       @default(now())
+
+  project Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items   ShipmentItem[]
+
+  @@unique([projectId, number])
+}
+
+model ShipmentItem {
+  id          String   @id @default(cuid())
+  shipmentId  String
+  memberId    String
+  quantity    Int
+  qtyReceived Int?
+  damaged     Int      @default(0)
+  shipment    Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  member      Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  projectId String?
+  action    String
+  entity    String
+  entityId  String?
+  details   Json?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@index([projectId, createdAt])
+}
